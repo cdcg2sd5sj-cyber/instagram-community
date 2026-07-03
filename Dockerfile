@@ -4,14 +4,13 @@ WORKDIR /app
 
 COPY backend/package.json ./
 RUN npm install
+RUN npm install -g ts-node typescript
 
 COPY backend/ ./
 COPY prisma/ ./prisma/
 
 RUN npx prisma generate
-RUN ./node_modules/.bin/nest build
-RUN ls -la dist/
 
 EXPOSE 3000
 
-CMD ["node", "dist/main.js"]
+CMD ["ts-node", "--transpile-only", "src/main.ts"]
