@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   Int       @id @default(autoincrement())
+  telegramId           String    @unique
+  username             String?
+  firstName            String
+  instagramUsername    String    @unique
+  instagramVerified    Boolean   @default(false)
+  instagramTrustScore  Int       @default(100)
+  balance              Int       @default(10)
+  rating               Int       @default(80)
+  completedTasksCount  Int       @default(0)
+  referralCode         String    @unique
+  referredById         Int?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  referredBy           User?     @relation("Referrals", fields: [referredById], references: [id])
+  referrals            User[]    @relation("Referrals")
+  campaigns            Campaign[]
+  completions          TaskCompletion[]
+  transactions         Transaction[]
+}
+
+model Campaign {
+  id              Int       @id @default(autoincrement())
+  userId          Int
+  reelsUrl        String
+  totalSlots      Int
+  filledSlots     Int       @default(0)
+  creditsPerTask  Int       @default(15)
+  status          CampaignStatus @default(ACTIVE)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id])
+  completions     TaskCompletion[]
+}
+
+model TaskCompletion {
+  id              Int       @id @default(autoincrement())
+  userId          Int
+  campaignId      Int
+  comment         String
+  commentWords    Int
+  aiApproved      Boolean   @default(false)
+  creditsEarned   Int
+  createdAt       DateTime  @default(now())
+
+  user            User      @relation(fields: [userId], references: [id])
+  campaign        Campaign  @relation(fields: [campaignId], references: [id])
+
+  @@unique([userId, campaignId])
+}
+
+model Transaction {
+  id          Int               @id @default(autoincrement())
+  userId      Int
+  amount      Int
+  type        TransactionType
+  description String
+  createdAt   DateTime          @default(now())
+
+  user        User              @relation(fields: [userId], references: [id])
+}
+
+enum CampaignStatus {
+  ACTIVE
+  COMPLETED
+  PAUSED
+}
+
+enum TransactionType {
+  EARN
+  SPEND
+  BONUS
+  REFUND
+}
