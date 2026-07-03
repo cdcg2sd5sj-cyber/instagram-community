@@ -10,6 +10,7 @@ COPY prisma/ ./prisma/
 
 RUN npx prisma generate
 RUN ./node_modules/.bin/nest build
+RUN ls -la dist/
 
 EXPOSE 3000
 
