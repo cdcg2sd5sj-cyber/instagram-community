@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import * as crypto from 'crypto'
 import axios from 'axios'
@@ -67,22 +68,44 @@ export class AuthService {
       }
 
       const REFERRAL_BONUS = 20
+      let createdNow = false
 
-      user = await this.prisma.user.create({
-        data: {
-          telegramId: String(tgUser.id),
-          firstName: tgUser.first_name,
-          username: tgUser.username,
-          instagramUsername: instagramUsername.replace('@', ''),
-          instagramVerified: true,
-          instagramTrustScore: igCheck.score,
-          balance: referredBy ? 10 + REFERRAL_BONUS : 10,
-          referralCode: this.generateReferralCode(),
-          referredById: referredBy?.id,
-        },
-      })
+      try {
+        user = await this.prisma.user.create({
+          data: {
+            telegramId: String(tgUser.id),
+            firstName: tgUser.first_name,
+            username: tgUser.username,
+            instagramUsername: instagramUsername.replace('@', ''),
+            instagramVerified: true,
+            instagramTrustScore: igCheck.score,
+            balance: referredBy ? 10 + REFERRAL_BONUS : 10,
+            referralCode: this.generateReferralCode(),
+            referredById: referredBy?.id,
+          },
+        })
+        createdNow = true
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          const target = ((err.meta?.target as string[] | string | undefined) || '').toString()
+          if (target.includes('telegramId')) {
+            // Двойной тап "Начать" — параллельный запрос уже создал этого же
+            // пользователя (и уже начислил реферальный бонус, если он был).
+            // Просто логиним, НЕ повторяя начисление бонуса ниже.
+            user = await this.prisma.user.findUniqueOrThrow({
+              where: { telegramId: String(tgUser.id) },
+            })
+          } else if (target.includes('instagramUsername')) {
+            return { igError: 'Этот Instagram уже привязан к другому аккаунту' }
+          } else {
+            return { igError: 'Не удалось завершить регистрацию, попробуй ещё раз' }
+          }
+        } else {
+          throw err
+        }
+      }
 
-      if (referredBy) {
+      if (createdNow && referredBy) {
         await this.prisma.$transaction([
           this.prisma.user.update({
             where: { id: referredBy.id },
