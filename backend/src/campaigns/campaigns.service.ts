@@ -14,8 +14,8 @@ export class CampaignsService {
       throw new BadRequestException(`Недостаточно Credits. Нужно ${totalCost} ₢`)
     }
 
-    if (totalSlots < 5 || totalSlots > 100) {
-      throw new BadRequestException('Количество участников: от 5 до 100')
+    if (totalSlots < 5 || totalSlots > 200) {
+      throw new BadRequestException('Количество участников: от 5 до 200')
     }
 
     const [campaign] = await this.prisma.$transaction([

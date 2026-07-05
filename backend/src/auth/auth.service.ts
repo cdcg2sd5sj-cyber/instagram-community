@@ -40,7 +40,9 @@ export class AuthService {
   }
 
   async loginOrRegister(initData: string, instagramUsername?: string) {
+    const params = new URLSearchParams(initData)
     const tgUser = this.validateTelegramData(initData)
+    const startParam = params.get('start_param') || undefined
 
     let user = await this.prisma.user.findUnique({
       where: { telegramId: String(tgUser.id) },
@@ -56,6 +58,16 @@ export class AuthService {
         return { igError: igCheck.reason }
       }
 
+      let referredBy: { id: number } | null = null
+      if (startParam) {
+        referredBy = await this.prisma.user.findUnique({
+          where: { referralCode: startParam },
+          select: { id: true },
+        })
+      }
+
+      const REFERRAL_BONUS = 20
+
       user = await this.prisma.user.create({
         data: {
           telegramId: String(tgUser.id),
@@ -64,10 +76,36 @@ export class AuthService {
           instagramUsername: instagramUsername.replace('@', ''),
           instagramVerified: true,
           instagramTrustScore: igCheck.score,
-          balance: 10,
+          balance: referredBy ? 10 + REFERRAL_BONUS : 10,
           referralCode: this.generateReferralCode(),
+          referredById: referredBy?.id,
         },
       })
+
+      if (referredBy) {
+        await this.prisma.$transaction([
+          this.prisma.user.update({
+            where: { id: referredBy.id },
+            data: { balance: { increment: REFERRAL_BONUS } },
+          }),
+          this.prisma.transaction.create({
+            data: {
+              userId: referredBy.id,
+              amount: REFERRAL_BONUS,
+              type: 'BONUS',
+              description: `Приглашённый друг зарегистрировался (@${user.instagramUsername})`,
+            },
+          }),
+          this.prisma.transaction.create({
+            data: {
+              userId: user.id,
+              amount: REFERRAL_BONUS,
+              type: 'BONUS',
+              description: 'Бонус за регистрацию по приглашению',
+            },
+          }),
+        ])
+      }
     }
 
     const token = this.jwtService.sign({ sub: user.id, tgId: user.telegramId })
@@ -75,6 +113,12 @@ export class AuthService {
   }
 
   private async checkInstagram(username: string) {
+    // Проверка через RapidAPI временно отключена в проекте (см. заметки) —
+    // включается через INSTAGRAM_CHECK_ENABLED=true, когда ключ будет готов.
+    if (process.env.INSTAGRAM_CHECK_ENABLED !== 'true') {
+      return { valid: true, reason: null, score: 100 }
+    }
+
     try {
       const clean = username.replace('@', '')
       const response = await axios.get(

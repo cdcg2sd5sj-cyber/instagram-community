@@ -18,6 +18,8 @@ model User {
   balance              Int       @default(10)
   rating               Int       @default(80)
   completedTasksCount  Int       @default(0)
+  streak               Int       @default(0)
+  lastActivityDate     DateTime?
   referralCode         String    @unique
   referredById         Int?
   createdAt            DateTime  @default(now())

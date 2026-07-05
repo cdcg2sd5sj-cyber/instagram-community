@@ -9,10 +9,11 @@ export class TasksService {
   constructor(private prisma: PrismaService) {}
 
   async getNextTask(userId: number) {
-    const campaign = await this.prisma.campaign.findFirst({
+    // Prisma не умеет сравнивать два поля одной записи прямо в where,
+    // поэтому забираем активные кампании и фильтруем по заполненности в коде.
+    const campaigns = await this.prisma.campaign.findMany({
       where: {
         status: 'ACTIVE',
-        filledSlots: { lt: this.prisma.campaign.fields.totalSlots },
         userId: { not: userId },
         completions: {
           none: { userId },
@@ -21,6 +22,7 @@ export class TasksService {
       orderBy: { filledSlots: 'asc' },
     })
 
+    const campaign = campaigns.find((c) => c.filledSlots < c.totalSlots)
     if (!campaign) {
       return null
     }
@@ -58,7 +60,25 @@ export class TasksService {
       throw new BadRequestException('Комментарий не прошёл проверку — напиши более осмысленный текст')
     }
 
-    await this.prisma.$transaction([
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } })
+
+    const now = new Date()
+    const todayStr = now.toDateString()
+    const yesterdayStr = new Date(now.getTime() - 86400000).toDateString()
+    const lastStr = user.lastActivityDate ? user.lastActivityDate.toDateString() : null
+
+    let newStreak = user.streak
+    if (lastStr === todayStr) {
+      // уже была активность сегодня — стрик не меняется
+    } else if (lastStr === yesterdayStr) {
+      newStreak = user.streak + 1
+    } else {
+      newStreak = 1
+    }
+    const streakBonus = newStreak > 0 && newStreak % 7 === 0 ? 30 : 0
+    const totalCredits = campaign.creditsPerTask + streakBonus
+
+    const ops = [
       this.prisma.taskCompletion.create({
         data: {
           userId,
@@ -79,8 +99,10 @@ export class TasksService {
       this.prisma.user.update({
         where: { id: userId },
         data: {
-          balance: { increment: campaign.creditsPerTask },
+          balance: { increment: totalCredits },
           completedTasksCount: { increment: 1 },
+          streak: newStreak,
+          lastActivityDate: now,
         },
       }),
       this.prisma.transaction.create({
@@ -91,9 +113,24 @@ export class TasksService {
           description: `Выполнение задания #${campaignId}`,
         },
       }),
-    ])
+    ]
 
-    return { creditsEarned: campaign.creditsPerTask }
+    if (streakBonus > 0) {
+      ops.push(
+        this.prisma.transaction.create({
+          data: {
+            userId,
+            amount: streakBonus,
+            type: 'BONUS',
+            description: `Стрик-бонус: ${newStreak} дней подряд`,
+          },
+        }),
+      )
+    }
+
+    await this.prisma.$transaction(ops)
+
+    return { creditsEarned: totalCredits, streak: newStreak, streakBonusApplied: streakBonus > 0 }
   }
 
   private async checkCommentWithAI(comment: string): Promise<boolean> {
