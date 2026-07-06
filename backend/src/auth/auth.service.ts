@@ -76,6 +76,7 @@ export class AuthService {
           instagramUsername: instagramUsername.replace('@', ''),
           instagramVerified: true,
           instagramTrustScore: igCheck.score,
+          profilePicUrl: igCheck.profilePicUrl,
           balance: 10,
           referralCode: this.generateReferralCode(),
           referredById: referrerId,
@@ -108,7 +109,7 @@ export class AuthService {
 
   private async checkInstagram(username: string) {
     if (process.env.SKIP_INSTAGRAM_CHECK === 'true') {
-      return { valid: true, reason: null, score: 100 }
+      return { valid: true, reason: null, score: 100, profilePicUrl: null }
     }
 
     try {
@@ -127,15 +128,15 @@ export class AuthService {
       )
 
       const data = response.data
-      if (!data || data.error) return { valid: false, reason: 'Аккаунт не найден', score: 0 }
-      if (data.is_private) return { valid: false, reason: 'Аккаунт закрытый', score: 0 }
-      if ((data.follower_count ?? 0) < 100) return { valid: false, reason: 'Менее 100 подписчиков', score: 0 }
-      if ((data.media_count ?? 0) < 5) return { valid: false, reason: 'Менее 5 публикаций', score: 0 }
+      if (!data || data.error) return { valid: false, reason: 'Аккаунт не найден', score: 0, profilePicUrl: null }
+      if (data.is_private) return { valid: false, reason: 'Аккаунт закрытый', score: 0, profilePicUrl: null }
+      if ((data.follower_count ?? 0) < 100) return { valid: false, reason: 'Менее 100 подписчиков', score: 0, profilePicUrl: null }
+      if ((data.media_count ?? 0) < 5) return { valid: false, reason: 'Менее 5 публикаций', score: 0, profilePicUrl: null }
 
       const score = Math.min(100, Math.floor(data.follower_count / 10))
-      return { valid: true, reason: null, score }
+      return { valid: true, reason: null, score, profilePicUrl: data.profile_pic_url || null }
     } catch {
-      return { valid: false, reason: 'Не удалось проверить аккаунт', score: 0 }
+      return { valid: false, reason: 'Не удалось проверить аккаунт', score: 0, profilePicUrl: null }
     }
   }
 

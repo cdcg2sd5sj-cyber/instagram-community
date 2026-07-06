@@ -16,6 +16,7 @@ model User {
   instagramUsername    String    @unique
   instagramVerified    Boolean   @default(false)
   instagramTrustScore  Int       @default(100)
+  profilePicUrl        String?
   balance              Int       @default(10)
   rating               Int       @default(80)
   completedTasksCount  Int       @default(0)

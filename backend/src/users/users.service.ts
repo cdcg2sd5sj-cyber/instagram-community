@@ -26,6 +26,7 @@ export class UsersService {
     return {
       id: user.id,
       igUsername: user.instagramUsername,
+      profilePicUrl: user.profilePicUrl,
       balance: user.balance,
       completedTasks: user.completedTasksCount,
       earnedTotal: earnedResult._sum.amount ?? 0,
