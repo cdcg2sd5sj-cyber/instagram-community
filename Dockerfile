@@ -18,6 +18,9 @@ RUN cd backend && ./node_modules/.bin/prisma generate --schema ../prisma/schema.
 # Compile TypeScript
 RUN cd backend && ./node_modules/.bin/nest build
 
+# TEMP DIAGNOSTIC: confirm dist/main.js exists after build (remove once resolved)
+RUN cd backend && ls -la dist/ && find dist -name "main.js"
+
 EXPOSE 3000
 
 # Apply pending migrations then start
