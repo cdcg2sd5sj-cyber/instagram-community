@@ -16,11 +16,7 @@ COPY backend/ ./backend/
 RUN cd backend && ./node_modules/.bin/prisma generate --schema ../prisma/schema.prisma
 
 # Compile TypeScript
-ARG CACHEBUST=1
-RUN cd backend && echo "cachebust=${CACHEBUST}" && ./node_modules/.bin/nest build
-
-# TEMP DIAGNOSTIC: confirm dist/main.js exists after build (remove once resolved)
-RUN cd backend && ls -la dist/ && find dist -name "main.js"
+RUN cd backend && ./node_modules/.bin/nest build
 
 EXPOSE 3000
 
