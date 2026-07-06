@@ -35,8 +35,8 @@ export class TasksService {
 
   async completeTask(userId: number, campaignId: number, comment: string) {
     const words = comment.trim().split(/\s+/).filter(w => w.length > 0)
-    if (words.length < 10) {
-      throw new BadRequestException('Комментарий должен содержать минимум 10 слов')
+    if (words.length < 5) {
+      throw new BadRequestException('Комментарий должен содержать минимум 5 слов')
     }
 
     const existing = await this.prisma.taskCompletion.findUnique({
