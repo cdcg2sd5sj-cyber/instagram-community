@@ -107,6 +107,10 @@ export class AuthService {
   }
 
   private async checkInstagram(username: string) {
+    if (process.env.SKIP_INSTAGRAM_CHECK === 'true') {
+      return { valid: true, reason: null, score: 100 }
+    }
+
     try {
       const clean = username.replace('@', '')
       const response = await axios.get(
