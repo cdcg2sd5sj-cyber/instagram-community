@@ -113,21 +113,24 @@ export class AuthService {
 
     try {
       const clean = username.replace('@', '')
-      const response = await axios.get(
-        `https://instagram-scraper-api2.p.rapidapi.com/v1/info?username_or_id_or_url=${clean}`,
+      const body = new URLSearchParams({ username_or_url: clean, data: 'basic' })
+      const response = await axios.post(
+        'https://instagram-scraper-stable-api.p.rapidapi.com/ig_get_fb_profile.php',
+        body.toString(),
         {
           headers: {
-            'X-RapidAPI-Key': process.env.RAPIDAPI_KEY!,
-            'X-RapidAPI-Host': 'instagram-scraper-api2.p.rapidapi.com',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'x-rapidapi-key': process.env.RAPIDAPI_KEY!,
+            'x-rapidapi-host': 'instagram-scraper-stable-api.p.rapidapi.com',
           },
         },
       )
 
-      const data = response.data?.data
-      if (!data) return { valid: false, reason: 'Аккаунт не найден', score: 0 }
+      const data = response.data
+      if (!data || data.error) return { valid: false, reason: 'Аккаунт не найден', score: 0 }
       if (data.is_private) return { valid: false, reason: 'Аккаунт закрытый', score: 0 }
-      if (data.follower_count < 100) return { valid: false, reason: 'Менее 100 подписчиков', score: 0 }
-      if (data.media_count < 5) return { valid: false, reason: 'Менее 5 публикаций', score: 0 }
+      if ((data.follower_count ?? 0) < 100) return { valid: false, reason: 'Менее 100 подписчиков', score: 0 }
+      if ((data.media_count ?? 0) < 5) return { valid: false, reason: 'Менее 5 публикаций', score: 0 }
 
       const score = Math.min(100, Math.floor(data.follower_count / 10))
       return { valid: true, reason: null, score }
