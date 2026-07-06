@@ -1,6 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
-import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import * as crypto from 'crypto'
 import axios from 'axios'
@@ -41,9 +40,11 @@ export class AuthService {
   }
 
   async loginOrRegister(initData: string, instagramUsername?: string) {
-    const params = new URLSearchParams(initData)
     const tgUser = this.validateTelegramData(initData)
-    const startParam = params.get('start_param') || undefined
+
+    // Telegram deep-link referral code comes via start_param
+    const params = new URLSearchParams(initData)
+    const startParam = params.get('start_param')
 
     let user = await this.prisma.user.findUnique({
       where: { telegramId: String(tgUser.id) },
@@ -59,73 +60,43 @@ export class AuthService {
         return { igError: igCheck.reason }
       }
 
-      let referredBy: { id: number } | null = null
+      let referrerId: number | null = null
       if (startParam) {
-        referredBy = await this.prisma.user.findUnique({
-          where: { referralCode: startParam },
-          select: { id: true },
+        const referrer = await this.prisma.user.findUnique({
+          where: { referralCode: startParam.toUpperCase() },
         })
+        if (referrer) referrerId = referrer.id
       }
 
-      const REFERRAL_BONUS = 20
-      let createdNow = false
+      user = await this.prisma.user.create({
+        data: {
+          telegramId: String(tgUser.id),
+          firstName: tgUser.first_name,
+          username: tgUser.username,
+          instagramUsername: instagramUsername.replace('@', ''),
+          instagramVerified: true,
+          instagramTrustScore: igCheck.score,
+          balance: 10,
+          referralCode: this.generateReferralCode(),
+          referredById: referrerId,
+        },
+      })
 
-      try {
-        user = await this.prisma.user.create({
-          data: {
-            telegramId: String(tgUser.id),
-            firstName: tgUser.first_name,
-            username: tgUser.username,
-            instagramUsername: instagramUsername.replace('@', ''),
-            instagramVerified: true,
-            instagramTrustScore: igCheck.score,
-            balance: referredBy ? 10 + REFERRAL_BONUS : 10,
-            referralCode: this.generateReferralCode(),
-            referredById: referredBy?.id,
-          },
-        })
-        createdNow = true
-      } catch (err) {
-        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-          const target = ((err.meta?.target as string[] | string | undefined) || '').toString()
-          if (target.includes('telegramId')) {
-            // Двойной тап "Начать" — параллельный запрос уже создал этого же
-            // пользователя (и уже начислил реферальный бонус, если он был).
-            // Просто логиним, НЕ повторяя начисление бонуса ниже.
-            user = await this.prisma.user.findUniqueOrThrow({
-              where: { telegramId: String(tgUser.id) },
-            })
-          } else if (target.includes('instagramUsername')) {
-            return { igError: 'Этот Instagram уже привязан к другому аккаунту' }
-          } else {
-            return { igError: 'Не удалось завершить регистрацию, попробуй ещё раз' }
-          }
-        } else {
-          throw err
-        }
-      }
-
-      if (createdNow && referredBy) {
+      if (referrerId) {
         await this.prisma.$transaction([
           this.prisma.user.update({
-            where: { id: referredBy.id },
-            data: { balance: { increment: REFERRAL_BONUS } },
+            where: { id: user.id },
+            data: { balance: { increment: 20 } },
+          }),
+          this.prisma.user.update({
+            where: { id: referrerId },
+            data: { balance: { increment: 20 } },
           }),
           this.prisma.transaction.create({
-            data: {
-              userId: referredBy.id,
-              amount: REFERRAL_BONUS,
-              type: 'BONUS',
-              description: `Приглашённый друг зарегистрировался (@${user.instagramUsername})`,
-            },
+            data: { userId: user.id, amount: 20, type: 'BONUS', description: 'Реферальный бонус — вступил по приглашению' },
           }),
           this.prisma.transaction.create({
-            data: {
-              userId: user.id,
-              amount: REFERRAL_BONUS,
-              type: 'BONUS',
-              description: 'Бонус за регистрацию по приглашению',
-            },
+            data: { userId: referrerId, amount: 20, type: 'BONUS', description: 'Реферальный бонус — пригласил друга' },
           }),
         ])
       }
@@ -136,12 +107,6 @@ export class AuthService {
   }
 
   private async checkInstagram(username: string) {
-    // Проверка через RapidAPI временно отключена в проекте (см. заметки) —
-    // включается через INSTAGRAM_CHECK_ENABLED=true, когда ключ будет готов.
-    if (process.env.INSTAGRAM_CHECK_ENABLED !== 'true') {
-      return { valid: true, reason: null, score: 100 }
-    }
-
     try {
       const clean = username.replace('@', '')
       const response = await axios.get(

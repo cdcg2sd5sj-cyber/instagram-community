@@ -1,21 +1,23 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common'
+import { Controller, Get, Post, Body, UseGuards, Request } from '@nestjs/common'
 import { TasksService } from './tasks.service'
-import { JwtAuthGuard } from '../auth/jwt-auth.guard'
-import { CurrentUser } from '../auth/current-user.decorator'
-import { CompleteTaskDto } from './dto/complete-task.dto'
+import { JwtAuthGuard } from '../common/jwt-auth.guard'
 
 @Controller('tasks')
-@UseGuards(JwtAuthGuard)
 export class TasksController {
   constructor(private tasksService: TasksService) {}
 
   @Get('next')
-  async next(@CurrentUser('id') userId: number) {
-    return this.tasksService.getNextTask(userId)
+  @UseGuards(JwtAuthGuard)
+  getNext(@Request() req: any) {
+    return this.tasksService.getNextTask(req.user.sub)
   }
 
   @Post('complete')
-  async complete(@CurrentUser('id') userId: number, @Body() dto: CompleteTaskDto) {
-    return this.tasksService.completeTask(userId, dto.campaignId, dto.comment)
+  @UseGuards(JwtAuthGuard)
+  complete(
+    @Request() req: any,
+    @Body() body: { campaignId: number; comment: string },
+  ) {
+    return this.tasksService.completeTask(req.user.sub, body.campaignId, body.comment)
   }
 }

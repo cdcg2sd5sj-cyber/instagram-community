@@ -1,21 +1,23 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common'
+import { Controller, Post, Get, Body, UseGuards, Request } from '@nestjs/common'
 import { CampaignsService } from './campaigns.service'
-import { JwtAuthGuard } from '../auth/jwt-auth.guard'
-import { CurrentUser } from '../auth/current-user.decorator'
-import { CreateCampaignDto } from './dto/create-campaign.dto'
+import { JwtAuthGuard } from '../common/jwt-auth.guard'
 
 @Controller('campaigns')
-@UseGuards(JwtAuthGuard)
 export class CampaignsController {
   constructor(private campaignsService: CampaignsService) {}
 
   @Post()
-  async create(@CurrentUser('id') userId: number, @Body() dto: CreateCampaignDto) {
-    return this.campaignsService.createCampaign(userId, dto.reelsUrl, dto.totalSlots)
+  @UseGuards(JwtAuthGuard)
+  create(
+    @Request() req: any,
+    @Body() body: { reelsUrl: string; totalSlots: number },
+  ) {
+    return this.campaignsService.createCampaign(req.user.sub, body.reelsUrl, body.totalSlots)
   }
 
   @Get('mine')
-  async mine(@CurrentUser('id') userId: number) {
-    return this.campaignsService.getUserCampaigns(userId)
+  @UseGuards(JwtAuthGuard)
+  getMine(@Request() req: any) {
+    return this.campaignsService.getUserCampaigns(req.user.sub)
   }
 }

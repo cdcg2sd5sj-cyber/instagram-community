@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../backend/node_modules/.prisma/client"
 }
 
 datasource db {
@@ -19,7 +20,7 @@ model User {
   rating               Int       @default(80)
   completedTasksCount  Int       @default(0)
   streak               Int       @default(0)
-  lastActivityDate     DateTime?
+  lastTaskDate         DateTime?
   referralCode         String    @unique
   referredById         Int?
   createdAt            DateTime  @default(now())

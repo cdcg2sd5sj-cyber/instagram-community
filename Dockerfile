@@ -4,15 +4,21 @@ RUN apk add --no-cache openssl
 
 WORKDIR /app
 
-COPY backend/package.json ./
-RUN npm install
-RUN npm install -g ts-node typescript
+# Install deps first (layer cache)
+COPY backend/package.json ./backend/
+RUN cd backend && npm install
 
-COPY backend/ ./
+# Copy source preserving directory structure (prisma/ lives next to backend/)
 COPY prisma/ ./prisma/
+COPY backend/ ./backend/
 
-RUN npx prisma generate
+# Generate Prisma client into backend/node_modules/.prisma/client (matches schema output path)
+RUN cd backend && ./node_modules/.bin/prisma generate --schema ../prisma/schema.prisma
+
+# Compile TypeScript
+RUN cd backend && ./node_modules/.bin/nest build
 
 EXPOSE 3000
 
-CMD ["ts-node", "--transpile-only", "src/main.ts"]
+# Apply pending migrations then start
+CMD ["sh", "-c", "cd backend && ./node_modules/.bin/prisma migrate deploy --schema ../prisma/schema.prisma && node dist/main.js"]
