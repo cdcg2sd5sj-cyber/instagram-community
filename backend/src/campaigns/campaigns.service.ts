@@ -1,21 +1,28 @@
 import { Injectable, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 
+const PACKAGE_PRICES: Record<number, number> = {
+  10: 50,
+  25: 100,
+  60: 200,
+  200: 500,
+}
+
 @Injectable()
 export class CampaignsService {
   constructor(private prisma: PrismaService) {}
 
   async createCampaign(userId: number, reelsUrl: string, totalSlots: number) {
-    const COST_PER_SLOT = 1.5
-    const totalCost = Math.ceil(totalSlots * COST_PER_SLOT)
+    const totalCost = PACKAGE_PRICES[totalSlots]
+    if (!totalCost) {
+      throw new BadRequestException(
+        `Недопустимое количество участников. Доступные пакеты: ${Object.keys(PACKAGE_PRICES).join(', ')}`,
+      )
+    }
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } })
     if (!user || user.balance < totalCost) {
       throw new BadRequestException(`Недостаточно Credits. Нужно ${totalCost} ₢`)
-    }
-
-    if (totalSlots < 5 || totalSlots > 200) {
-      throw new BadRequestException('Количество участников: от 5 до 200')
     }
 
     const [campaign] = await this.prisma.$transaction([
