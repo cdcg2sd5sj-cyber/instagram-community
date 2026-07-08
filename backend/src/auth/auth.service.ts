@@ -141,10 +141,18 @@ export class AuthService {
       )
 
       const data = response.data
-      if (!data || data.error) return { valid: false, reason: 'Аккаунт не найден', score: 0, profilePicUrl: null }
-      if (data.is_private) return { valid: false, reason: 'Аккаунт закрытый', score: 0, profilePicUrl: null }
-      if ((data.follower_count ?? 0) < 10) return { valid: false, reason: 'Менее 10 подписчиков', score: 0, profilePicUrl: null }
-      if ((data.media_count ?? 0) < 5) return { valid: false, reason: 'Менее 5 публикаций', score: 0, profilePicUrl: null }
+      if (!data || data.error) {
+        return { valid: false, reason: 'Не удалось найти этот аккаунт - проверь правильность написания username', score: 0, profilePicUrl: null }
+      }
+      if (data.is_private) {
+        return { valid: false, reason: 'Аккаунт должен быть открытым (публичным)', score: 0, profilePicUrl: null }
+      }
+      if ((data.follower_count ?? 0) < 10) {
+        return { valid: false, reason: 'Для регистрации нужно минимум 10 подписчиков', score: 0, profilePicUrl: null }
+      }
+      if ((data.media_count ?? 0) < 5) {
+        return { valid: false, reason: 'Для регистрации нужно минимум 5 публикаций в аккаунте', score: 0, profilePicUrl: null }
+      }
 
       const score = Math.min(100, Math.floor(data.follower_count / 10))
       return { valid: true, reason: null, score, profilePicUrl: data.profile_pic_url || null }
