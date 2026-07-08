@@ -27,6 +27,7 @@ export class TasksService {
         completions: { none: { userId } },
       },
       orderBy: { filledSlots: 'asc' },
+      include: { user: true },
     })
 
     if (!campaign) return null
@@ -36,6 +37,10 @@ export class TasksService {
       reelsUrl: campaign.reelsUrl,
       reward: campaign.creditsPerTask,
       slotsLeft: campaign.totalSlots - campaign.filledSlots,
+      author: {
+        username: campaign.user.instagramUsername,
+        profilePicUrl: campaign.user.profilePicUrl,
+      },
     }
   }
 
