@@ -1,5 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
+import { NotificationsService } from '../notifications/notifications.service'
+import { CampaignsService } from '../campaigns/campaigns.service'
 import Anthropic from '@anthropic-ai/sdk'
 
 const STREAK_BONUS_EVERY = 7
@@ -9,7 +11,11 @@ const STREAK_BONUS_AMOUNT = 30
 export class TasksService {
   private anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+    private campaignsService: CampaignsService,
+  ) {}
 
   async getNextTask(userId: number) {
     // status: 'ACTIVE' guarantees filledSlots < totalSlots because completeTask
@@ -128,6 +134,17 @@ export class TasksService {
     }
 
     await this.prisma.$transaction(ops)
+
+    if (streakBonusApplied) {
+      await this.notifications.sendNotification(
+        user.telegramId,
+        `🔥 Стрик ${newStreak} дней! Начислен бонус +30₢`,
+      )
+    }
+
+    if (campaign.filledSlots + 1 >= campaign.totalSlots) {
+      await this.campaignsService.notifyIfFilled(campaignId)
+    }
 
     return { creditsEarned: totalEarned, streak: newStreak, streakBonusApplied }
   }

@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
+import { NotificationsService } from '../notifications/notifications.service'
 
 // Must match PACKAGES in frontend app/page.tsx
 const PACKAGES: Record<number, number> = {
@@ -11,7 +12,10 @@ const PACKAGES: Record<number, number> = {
 
 @Injectable()
 export class CampaignsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
 
   async createCampaign(userId: number, reelsUrl: string, totalSlots: number) {
     const totalCost = PACKAGES[totalSlots]
@@ -51,5 +55,18 @@ export class CampaignsService {
       include: { _count: { select: { completions: true } } },
       orderBy: { createdAt: 'desc' },
     })
+  }
+
+  async notifyIfFilled(campaignId: number) {
+    const campaign = await this.prisma.campaign.findUnique({
+      where: { id: campaignId },
+      include: { user: true },
+    })
+    if (!campaign || campaign.filledSlots < campaign.totalSlots) return
+
+    await this.notifications.sendNotification(
+      campaign.user.telegramId,
+      '🎉 Твоя кампания заполнена на 100%! Загляни проверить результаты.',
+    )
   }
 }

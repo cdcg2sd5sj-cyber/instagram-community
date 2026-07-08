@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt'
 import { AuthService } from './auth.service'
 import { AuthController } from './auth.controller'
 import { JwtAuthGuard } from '../common/jwt-auth.guard'
+import { NotificationsModule } from '../notifications/notifications.module'
 
 @Module({
   imports: [
@@ -10,6 +11,7 @@ import { JwtAuthGuard } from '../common/jwt-auth.guard'
       secret: process.env.JWT_SECRET || 'secret',
       signOptions: { expiresIn: '30d' },
     }),
+    NotificationsModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtAuthGuard],

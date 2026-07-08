@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import { PrismaService } from '../prisma/prisma.service'
+import { NotificationsService } from '../notifications/notifications.service'
 import * as crypto from 'crypto'
 import axios from 'axios'
 
@@ -9,6 +10,7 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private notifications: NotificationsService,
   ) {}
 
   validateTelegramData(initData: string): Record<string, string> {
@@ -61,11 +63,15 @@ export class AuthService {
       }
 
       let referrerId: number | null = null
+      let referrerTelegramId: string | null = null
       if (startParam) {
         const referrer = await this.prisma.user.findUnique({
           where: { referralCode: startParam.toUpperCase() },
         })
-        if (referrer) referrerId = referrer.id
+        if (referrer) {
+          referrerId = referrer.id
+          referrerTelegramId = referrer.telegramId
+        }
       }
 
       user = await this.prisma.user.create({
@@ -100,6 +106,13 @@ export class AuthService {
             data: { userId: referrerId, amount: 20, type: 'BONUS', description: 'Реферальный бонус — пригласил друга' },
           }),
         ])
+
+        if (referrerTelegramId) {
+          await this.notifications.sendNotification(
+            referrerTelegramId,
+            '🎉 Твой друг зарегистрировался по твоей ссылке! Начислено +20₢',
+          )
+        }
       }
     }
 
@@ -130,7 +143,7 @@ export class AuthService {
       const data = response.data
       if (!data || data.error) return { valid: false, reason: 'Аккаунт не найден', score: 0, profilePicUrl: null }
       if (data.is_private) return { valid: false, reason: 'Аккаунт закрытый', score: 0, profilePicUrl: null }
-      if ((data.follower_count ?? 0) < 100) return { valid: false, reason: 'Менее 100 подписчиков', score: 0, profilePicUrl: null }
+      if ((data.follower_count ?? 0) < 10) return { valid: false, reason: 'Менее 10 подписчиков', score: 0, profilePicUrl: null }
       if ((data.media_count ?? 0) < 5) return { valid: false, reason: 'Менее 5 публикаций', score: 0, profilePicUrl: null }
 
       const score = Math.min(100, Math.floor(data.follower_count / 10))
