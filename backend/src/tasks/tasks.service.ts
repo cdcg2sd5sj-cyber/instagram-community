@@ -2,6 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { CampaignsService } from '../campaigns/campaigns.service'
+import { normalizeInstagramUrl } from '../common/url.util'
 import Anthropic from '@anthropic-ai/sdk'
 
 const STREAK_BONUS_EVERY = 7
@@ -44,7 +45,7 @@ export class TasksService {
     }
   }
 
-  async completeTask(userId: number, campaignId: number, comment: string) {
+  async completeTask(userId: number, campaignId: number, comment: string, reelsUrl: string) {
     const words = comment.trim().split(/\s+/).filter(w => w.length > 0)
     if (words.length < 5) {
       throw new BadRequestException('Комментарий должен содержать минимум 5 слов')
@@ -62,6 +63,10 @@ export class TasksService {
     })
     if (!campaign || campaign.filledSlots >= campaign.totalSlots) {
       throw new BadRequestException('Задание недоступно')
+    }
+
+    if (normalizeInstagramUrl(reelsUrl) !== normalizeInstagramUrl(campaign.reelsUrl)) {
+      throw new BadRequestException('Ссылка не совпадает с заданием — убедись что копируешь именно из Instagram')
     }
 
     const aiApproved = await this.checkCommentWithAI(comment)

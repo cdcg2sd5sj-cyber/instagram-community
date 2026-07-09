@@ -16,8 +16,8 @@ export class TasksController {
   @UseGuards(JwtAuthGuard)
   complete(
     @Request() req: any,
-    @Body() body: { campaignId: number; comment: string },
+    @Body() body: { campaignId: number; comment: string; reelsUrl: string },
   ) {
-    return this.tasksService.completeTask(req.user.sub, body.campaignId, body.comment)
+    return this.tasksService.completeTask(req.user.sub, body.campaignId, body.comment, body.reelsUrl)
   }
 }

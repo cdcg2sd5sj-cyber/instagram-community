@@ -1,4 +1,4 @@
-import { IsInt, IsString, MinLength } from 'class-validator'
+import { IsInt, IsString, IsUrl, MinLength } from 'class-validator'
 
 export class CompleteTaskDto {
   @IsInt()
@@ -7,4 +7,7 @@ export class CompleteTaskDto {
   @IsString()
   @MinLength(1)
   comment!: string
+
+  @IsUrl()
+  reelsUrl!: string
 }
