@@ -28,6 +28,17 @@ export class CampaignsService {
       throw new BadRequestException(`Недостаточно Credits — нужно ${totalCost} ₢`)
     }
 
+    const startOfToday = new Date()
+    startOfToday.setHours(0, 0, 0, 0)
+    const campaignToday = await this.prisma.campaign.findFirst({
+      where: { userId, createdAt: { gte: startOfToday } },
+    })
+    if (campaignToday) {
+      throw new BadRequestException(
+        'Ты уже запускал продвижение сегодня. Новую кампанию можно создать завтра',
+      )
+    }
+
     const [campaign] = await this.prisma.$transaction([
       this.prisma.campaign.create({
         data: { userId, reelsUrl, totalSlots, creditsPerTask: 15 },
