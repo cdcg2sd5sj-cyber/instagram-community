@@ -2,16 +2,14 @@ import { Injectable, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { CampaignsService } from '../campaigns/campaigns.service'
-import { normalizeInstagramUrl } from '../common/url.util'
-import Anthropic from '@anthropic-ai/sdk'
+import { isSameReel } from '../common/url.util'
+import { refreshAvatarIfStale } from '../common/instagram-avatar'
 
 const STREAK_BONUS_EVERY = 7
 const STREAK_BONUS_AMOUNT = 30
 
 @Injectable()
 export class TasksService {
-  private anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
@@ -33,6 +31,8 @@ export class TasksService {
 
     if (!campaign) return null
 
+    const authorPicUrl = await refreshAvatarIfStale(this.prisma, campaign.user)
+
     return {
       id: campaign.id,
       reelsUrl: campaign.reelsUrl,
@@ -40,16 +40,19 @@ export class TasksService {
       slotsLeft: campaign.totalSlots - campaign.filledSlots,
       author: {
         username: campaign.user.instagramUsername,
-        profilePicUrl: campaign.user.profilePicUrl,
+        profilePicUrl: authorPicUrl,
       },
     }
   }
 
-  async completeTask(userId: number, campaignId: number, comment: string, reelsUrl: string) {
-    const words = comment.trim().split(/\s+/).filter(w => w.length > 0)
-    if (words.length < 5) {
-      throw new BadRequestException('Комментарий должен содержать минимум 5 слов')
+  // Задание: открыть Reels → лайк → «Поделиться → Копировать ссылку» → вставить ссылку.
+  // Комментарий больше не обязателен; если старая версия приложения его прислала — просто сохраняем.
+  async completeTask(userId: number, campaignId: number, comment: string | undefined, reelsUrl: string) {
+    if (!reelsUrl || !reelsUrl.trim()) {
+      throw new BadRequestException('Вставь ссылку, скопированную в Instagram')
     }
+    const commentText = (comment ?? '').trim()
+    const words = commentText.split(/\s+/).filter(w => w.length > 0)
 
     const existing = await this.prisma.taskCompletion.findUnique({
       where: { userId_campaignId: { userId, campaignId } },
@@ -65,13 +68,8 @@ export class TasksService {
       throw new BadRequestException('Задание недоступно')
     }
 
-    if (normalizeInstagramUrl(reelsUrl) !== normalizeInstagramUrl(campaign.reelsUrl)) {
+    if (!isSameReel(reelsUrl, campaign.reelsUrl)) {
       throw new BadRequestException('Ссылка не совпадает с заданием — убедись что копируешь именно из Instagram')
-    }
-
-    const aiApproved = await this.checkCommentWithAI(comment)
-    if (!aiApproved) {
-      throw new BadRequestException('Комментарий не прошёл проверку — напиши более осмысленный текст')
     }
 
     // Streak calculation
@@ -98,7 +96,7 @@ export class TasksService {
         data: {
           userId,
           campaignId,
-          comment,
+          comment: commentText,
           commentWords: words.length,
           aiApproved: true,
           creditsEarned: totalEarned,
@@ -157,31 +155,5 @@ export class TasksService {
     }
 
     return { creditsEarned: totalEarned, streak: newStreak, streakBonusApplied }
-  }
-
-  private async checkCommentWithAI(comment: string): Promise<boolean> {
-    try {
-      const response = await this.anthropic.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 10,
-        messages: [{
-          role: 'user',
-          content: `Проверь комментарий к Instagram Reels. Ответь только YES или NO.
-Комментарий плохой если:
-- Просто эмодзи или одно слово
-- Бессмысленный набор слов
-- Явный спам
-
-Комментарий: "${comment}"
-
-Ответ (только YES если хороший, NO если плохой):`,
-        }],
-      })
-
-      const result = response.content[0].type === 'text' ? response.content[0].text.trim() : 'NO'
-      return result.startsWith('YES')
-    } catch {
-      return true
-    }
   }
 }

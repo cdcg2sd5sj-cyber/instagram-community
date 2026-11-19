@@ -11,3 +11,18 @@ export function normalizeInstagramUrl(url: string): string {
     return url.trim().toLowerCase().split('?')[0].replace(/\/+$/, '')
   }
 }
+
+// Шорткод Reels/поста: instagram.com/reel/<code>, /reels/<code>, /p/<code>, /<user>/reel/<code>
+export function getInstagramShortcode(url: string): string | null {
+  const m = url.match(/instagram\.com\/(?:[^/?#]+\/)?(?:reels?|p|tv)\/([A-Za-z0-9_-]+)/i)
+  return m ? m[1] : null
+}
+
+// Та же публикация? Сравниваем по шорткоду (он регистрозависимый), а если его не удалось
+// достать — по нормализованному адресу. /reel/ и /reels/ одного ролика считаются одинаковыми.
+export function isSameReel(a: string, b: string): boolean {
+  const codeA = getInstagramShortcode(a)
+  const codeB = getInstagramShortcode(b)
+  if (codeA && codeB) return codeA === codeB
+  return normalizeInstagramUrl(a) === normalizeInstagramUrl(b)
+}

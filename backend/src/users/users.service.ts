@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
+import { refreshAvatarIfStale } from '../common/instagram-avatar'
 
 const DAY_MS = 86_400_000
 
@@ -32,10 +33,12 @@ export class UsersService {
 
     if (!user) throw new UnauthorizedException()
 
+    const profilePicUrl = await refreshAvatarIfStale(this.prisma, user)
+
     return {
       id: user.id,
       igUsername: user.instagramUsername,
-      profilePicUrl: user.profilePicUrl,
+      profilePicUrl,
       balance: user.balance,
       completedTasks: user.completedTasksCount,
       earnedTotal: earnedResult._sum.amount ?? 0,
