@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
-import { refreshAvatarIfStale } from '../common/instagram-avatar'
+import { avatarPath, ensureAvatarSaved } from '../common/instagram-avatar'
 
 export type LeaderboardPeriod = 'week' | 'month' | 'all'
 
@@ -25,8 +25,8 @@ export class LeaderboardService {
     const users = await this.prisma.user.findMany({
       where: { id: { in: top.map(r => r.userId) } },
     })
-    // Не задерживаем ответ: истёкшие аватарки обновляются в фоне и будут свежими к следующему запросу.
-    users.forEach(u => { void refreshAvatarIfStale(this.prisma, u) })
+    // Не задерживаем ответ: недостающие аватарки сохраняются в фоне и появятся к следующему запросу.
+    users.forEach(u => { void ensureAvatarSaved(this.prisma, u) })
     const userById = new Map(users.map(u => [u.id, u]))
 
     const leaderboard = top.map((entry, index) => {
@@ -34,7 +34,7 @@ export class LeaderboardService {
       return {
         rank: index + 1,
         username: user.instagramUsername,
-        profilePicUrl: user.profilePicUrl,
+        profilePicUrl: avatarPath(user.id, !!user.avatarImage),
         totalEarned: entry._sum.amount ?? 0,
         completedTasksCount: user.completedTasksCount,
       }

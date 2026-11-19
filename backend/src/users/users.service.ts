@@ -1,6 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
-import { refreshAvatarIfStale } from '../common/instagram-avatar'
+import { avatarPath, ensureAvatarSaved } from '../common/instagram-avatar'
 
 const DAY_MS = 86_400_000
 
@@ -33,12 +33,12 @@ export class UsersService {
 
     if (!user) throw new UnauthorizedException()
 
-    const profilePicUrl = await refreshAvatarIfStale(this.prisma, user)
+    const hasAvatar = await ensureAvatarSaved(this.prisma, user)
 
     return {
       id: user.id,
       igUsername: user.instagramUsername,
-      profilePicUrl,
+      profilePicUrl: avatarPath(user.id, hasAvatar),
       balance: user.balance,
       completedTasks: user.completedTasksCount,
       earnedTotal: earnedResult._sum.amount ?? 0,
@@ -48,6 +48,13 @@ export class UsersService {
       streak: user.streak,
       achievements: this.computeAchievements(user),
     }
+  }
+
+  async getAvatar(userId: number) {
+    return this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { avatarImage: true, avatarContentType: true },
+    })
   }
 
   async getUserAchievements(userId: number) {

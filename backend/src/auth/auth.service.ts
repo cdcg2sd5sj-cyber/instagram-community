@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import * as crypto from 'crypto'
 import axios from 'axios'
+import { recordRapidApiQuota, saveAvatarFromUrl } from '../common/instagram-avatar'
 
 @Injectable()
 export class AuthService {
@@ -89,6 +90,9 @@ export class AuthService {
         },
       })
 
+      // Сохраняем саму картинку сразу: ссылка Instagram потом протухнет.
+      await saveAvatarFromUrl(this.prisma, user.id, igCheck.profilePicUrl)
+
       if (referrerId) {
         await this.prisma.$transaction([
           this.prisma.user.update({
@@ -140,6 +144,7 @@ export class AuthService {
         },
       )
 
+      recordRapidApiQuota(response.headers)
       const data = response.data
       if (!data || data.error) {
         return { valid: false, reason: 'Не удалось найти этот аккаунт - проверь правильность написания username', score: 0, profilePicUrl: null }

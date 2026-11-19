@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { CampaignsService } from '../campaigns/campaigns.service'
 import { isSameReel } from '../common/url.util'
-import { refreshAvatarIfStale } from '../common/instagram-avatar'
+import { avatarPath, ensureAvatarSaved } from '../common/instagram-avatar'
 
 const STREAK_BONUS_EVERY = 7
 const STREAK_BONUS_AMOUNT = 30
@@ -31,7 +31,7 @@ export class TasksService {
 
     if (!campaign) return null
 
-    const authorPicUrl = await refreshAvatarIfStale(this.prisma, campaign.user)
+    const authorHasAvatar = await ensureAvatarSaved(this.prisma, campaign.user)
 
     return {
       id: campaign.id,
@@ -40,7 +40,7 @@ export class TasksService {
       slotsLeft: campaign.totalSlots - campaign.filledSlots,
       author: {
         username: campaign.user.instagramUsername,
-        profilePicUrl: authorPicUrl,
+        profilePicUrl: avatarPath(campaign.user.id, authorHasAvatar),
       },
     }
   }
