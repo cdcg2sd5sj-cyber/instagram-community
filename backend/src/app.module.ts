@@ -7,6 +7,7 @@ import { CampaignsModule } from './campaigns/campaigns.module'
 import { TasksModule } from './tasks/tasks.module'
 import { NotificationsModule } from './notifications/notifications.module'
 import { LeaderboardModule } from './leaderboard/leaderboard.module'
+import { AiModule } from './ai/ai.module'
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { LeaderboardModule } from './leaderboard/leaderboard.module'
     TasksModule,
     NotificationsModule,
     LeaderboardModule,
+    AiModule,
   ],
 })
 export class AppModule {}
