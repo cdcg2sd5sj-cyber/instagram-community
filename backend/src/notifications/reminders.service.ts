@@ -73,6 +73,7 @@ export class RemindersService implements OnModuleInit, OnModuleDestroy {
           status: 'ACTIVE',
           userId: { not: user.id },
           completions: { none: { userId: user.id } },
+          taskReports: { none: { userId: user.id } },
         },
       })
       if (available === 0) continue

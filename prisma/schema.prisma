@@ -38,6 +38,7 @@ model User {
   completions          TaskCompletion[]
   transactions         Transaction[]
   taskStarts           TaskStart[]
+  taskReports          TaskReport[]
 }
 
 model Campaign {
@@ -54,6 +55,7 @@ model Campaign {
   user            User      @relation(fields: [userId], references: [id])
   completions     TaskCompletion[]
   taskStarts      TaskStart[]
+  taskReports     TaskReport[]
 }
 
 model TaskCompletion {
@@ -103,6 +105,20 @@ model TaskStart {
   userId      Int
   campaignId  Int
   openedAt    DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id])
+  campaign    Campaign  @relation(fields: [campaignId], references: [id])
+
+  @@unique([userId, campaignId])
+}
+
+// Жалоба «Reels не открывается». Такое задание больше не показывается этому
+// пользователю; после нескольких жалоб кампания ставится на паузу.
+model TaskReport {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  campaignId  Int
+  createdAt   DateTime  @default(now())
 
   user        User      @relation(fields: [userId], references: [id])
   campaign    Campaign  @relation(fields: [campaignId], references: [id])

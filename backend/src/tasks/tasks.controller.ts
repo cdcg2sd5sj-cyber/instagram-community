@@ -12,6 +12,12 @@ export class TasksController {
     return this.tasksService.getNextTask(req.user.sub)
   }
 
+  @Post('report')
+  @UseGuards(JwtAuthGuard)
+  report(@Request() req: any, @Body() body: { campaignId: number }) {
+    return this.tasksService.reportTask(req.user.sub, Number(body?.campaignId))
+  }
+
   @Post('open')
   @UseGuards(JwtAuthGuard)
   open(@Request() req: any, @Body() body: { campaignId: number }) {

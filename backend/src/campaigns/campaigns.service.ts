@@ -97,6 +97,43 @@ export class CampaignsService {
     }))
   }
 
+  // Сколько жалоб «не открывается» от разных людей ставит кампанию на паузу.
+  static readonly REPORTS_TO_PAUSE = 3
+
+  /**
+   * Ставит кампанию на паузу из-за жалоб и возвращает автору кредиты за
+   * невыполненные слоты. Срабатывает один раз: повторный вызов ничего не делает.
+   */
+  async pauseForReports(campaignId: number) {
+    const campaign = await this.prisma.campaign.findUnique({ where: { id: campaignId }, include: { user: true } })
+    if (!campaign || campaign.status !== 'ACTIVE') return
+
+    const paid = PACKAGES[campaign.totalSlots] ?? 0
+    const unfilled = Math.max(0, campaign.totalSlots - campaign.filledSlots)
+    const refund = campaign.totalSlots > 0 ? Math.floor((paid * unfilled) / campaign.totalSlots) : 0
+
+    const paused = await this.prisma.$transaction(async tx => {
+      const res = await tx.campaign.updateMany({ where: { id: campaignId, status: 'ACTIVE' }, data: { status: 'PAUSED' } })
+      if (res.count === 0) return false
+      if (refund > 0) {
+        await tx.user.update({ where: { id: campaign.userId }, data: { balance: { increment: refund } } })
+        await tx.transaction.create({
+          data: { userId: campaign.userId, amount: refund, type: 'REFUND', description: `Возврат за кампанию #${campaignId}: Reels не открывался у участников` },
+        })
+      }
+      return true
+    })
+    if (!paused) return
+
+    await this.notifications.sendNotification(
+      campaign.user.telegramId,
+      `⚠️ Твой Reels не открывается у участников, поэтому продвижение остановлено.\n` +
+        `Проверь, что ролик не удалён и профиль открыт, и запусти продвижение заново.` +
+        (refund > 0 ? `\nМы вернули ${refund} ₢ за непросмотренные слоты.` : ''),
+      { openAppButton: true },
+    )
+  }
+
   // Автору: первый участник и половина кампании. 100% — в notifyIfFilled.
   async notifyProgress(campaignId: number, filled: number, viewerUsername: string) {
     const campaign = await this.prisma.campaign.findUnique({

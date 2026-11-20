@@ -30,6 +30,7 @@ export class TasksService {
         status: 'ACTIVE',
         userId: { not: userId },
         completions: { none: { userId } },
+        taskReports: { none: { userId } },
       },
       orderBy: { filledSlots: 'asc' },
       include: { user: true },
@@ -49,6 +50,28 @@ export class TasksService {
         profilePicUrl: avatarPath(campaign.user.id, authorHasAvatar),
       },
     }
+  }
+
+  // «Reels не открывается»: убираем задание у этого пользователя, а после нескольких
+  // жалоб от разных людей ставим кампанию на паузу с возвратом кредитов автору.
+  async reportTask(userId: number, campaignId: number) {
+    if (!Number.isInteger(campaignId)) throw new BadRequestException('Задание недоступно')
+    const campaign = await this.prisma.campaign.findFirst({
+      where: { id: campaignId, userId: { not: userId } },
+      select: { id: true },
+    })
+    if (!campaign) throw new BadRequestException('Задание недоступно')
+
+    await this.prisma.taskReport.upsert({
+      where: { userId_campaignId: { userId, campaignId } },
+      create: { userId, campaignId },
+      update: {},
+    })
+    const reports = await this.prisma.taskReport.count({ where: { campaignId } })
+    if (reports >= CampaignsService.REPORTS_TO_PAUSE) {
+      await this.campaignsService.pauseForReports(campaignId)
+    }
+    return { ok: true }
   }
 
   // Запоминаем момент первого «Открыть Reels». Повторное открытие время не сбрасывает.
