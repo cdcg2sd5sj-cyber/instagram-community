@@ -2,7 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { CampaignsService } from '../campaigns/campaigns.service'
-import { isSameReel } from '../common/url.util'
+import { hasInstagramShareToken, isSameReel } from '../common/url.util'
 import { avatarPath, ensureAvatarSaved } from '../common/instagram-avatar'
 
 // Сколько секунд должно пройти от «Открыть Reels» до отправки ссылки.
@@ -106,6 +106,12 @@ export class TasksService {
 
     if (!isSameReel(reelsUrl, campaign.reelsUrl)) {
       throw new BadRequestException('Ссылка не совпадает с заданием — убедись что копируешь именно из Instagram')
+    }
+
+    // Ссылка должна быть скопирована кнопкой «Поделиться» в Instagram (а не взята из задания).
+    // SHARE_LINK_CHECK=off выключает проверку, если Instagram снова поменяет формат ссылок.
+    if (process.env.SHARE_LINK_CHECK !== 'off' && !hasInstagramShareToken(reelsUrl)) {
+      throw new BadRequestException('Скопируй ссылку в самом Instagram: под роликом «Поделиться» → «Копировать ссылку»')
     }
 
     // Streak calculation
