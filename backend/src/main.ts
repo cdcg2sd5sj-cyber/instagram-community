@@ -3,6 +3,11 @@ import { ValidationPipe } from '@nestjs/common'
 import { AppModule } from './app.module'
 
 async function bootstrap() {
+  // Без секрета токены можно было бы подделать — лучше вообще не стартовать.
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'secret') {
+    throw new Error('JWT_SECRET is not set (or is the insecure default). Refusing to start.')
+  }
+
   const app = await NestFactory.create(AppModule)
 
   app.useGlobalPipes(

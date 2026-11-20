@@ -8,7 +8,8 @@ import { NotificationsModule } from '../notifications/notifications.module'
 @Module({
   imports: [
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'secret',
+      // Обязателен: проверка при старте в main.ts — без него сервер не запустится.
+      secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: '30d' },
     }),
     NotificationsModule,
