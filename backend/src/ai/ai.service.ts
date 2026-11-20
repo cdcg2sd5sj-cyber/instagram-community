@@ -8,6 +8,11 @@ export function ideasDailyLimit(_user: { id: number }): number | null {
   return 1 // null = без ограничений
 }
 
+// Дополнительная генерация сверх бесплатной — за заработанные кредиты (1 задание = 5 ₢).
+export const IDEAS_CREDIT_PRICE = 10
+// Потолок генераций в день (бесплатные + за кредиты), чтобы не сжечь бюджет на Claude.
+export const IDEAS_DAILY_CAP = 10
+
 export interface IdeasResult {
   ideas: { hook: string; structure: string; cta: string }[]
   caption: string
@@ -37,45 +42,81 @@ export class AiService {
     if (!user) throw new BadRequestException()
     const limit = ideasDailyLimit(user)
     const usedToday = user.ideasUsedDate && user.ideasUsedDate >= startOfTodayUtc() ? user.ideasUsedCount : 0
-    return { limit, used: usedToday, remaining: limit === null ? null : Math.max(0, limit - usedToday) }
+    return {
+      limit,
+      used: usedToday,
+      remaining: limit === null ? null : Math.max(0, limit - usedToday),
+      creditPrice: IDEAS_CREDIT_PRICE,
+      // Сколько ещё можно купить за кредиты сегодня (без учёта баланса)
+      paidRemaining: limit === null ? null : Math.max(0, IDEAS_DAILY_CAP - Math.max(usedToday, limit)),
+      balance: user.balance,
+    }
   }
 
-  async generateIdeas(userId: number, niche: string): Promise<IdeasResult & { remaining: number | null }> {
+  async generateIdeas(userId: number, niche: string, payWithCredits = false) {
     const topic = (niche ?? '').trim()
     if (topic.length < 2) throw new BadRequestException('Укажи нишу или тему')
 
-    // Резервируем попытку до запроса к Claude, чтобы нельзя было обойти лимит параллельными запросами.
     const quota = await this.getIdeasQuota(userId)
-    if (quota.limit !== null && quota.used >= quota.limit) {
-      throw new HttpException(
-        'На сегодня генерации закончились — новая будет доступна завтра. В платных тарифах лимит больше.',
-        HttpStatus.TOO_MANY_REQUESTS,
-      )
-    }
     const today = startOfTodayUtc()
-    const reserved = await this.prisma.user.updateMany({
-      where: {
-        id: userId,
-        ...(quota.limit === null
-          ? {}
-          : { OR: [{ ideasUsedDate: null }, { ideasUsedDate: { lt: today } }, { ideasUsedCount: { lt: quota.limit } }] }),
-      },
-      data: quota.used === 0
-        ? { ideasUsedDate: new Date(), ideasUsedCount: 1 }
-        : { ideasUsedDate: new Date(), ideasUsedCount: { increment: 1 } },
-    })
-    if (reserved.count === 0) {
-      throw new HttpException('На сегодня генерации закончились — новая будет доступна завтра.', HttpStatus.TOO_MANY_REQUESTS)
+    const isFree = quota.remaining === null || quota.remaining > 0
+    const countData = quota.used === 0
+      ? { ideasUsedDate: new Date(), ideasUsedCount: 1 }
+      : { ideasUsedDate: new Date(), ideasUsedCount: { increment: 1 } }
+    // Условие «сегодня ещё не превышен лимит N» для атомарного резерва попытки.
+    const underLimit = (n: number) => ({ OR: [{ ideasUsedDate: null }, { ideasUsedDate: { lt: today } }, { ideasUsedCount: { lt: n } }] })
+
+    if (isFree) {
+      // Резервируем бесплатную попытку до запроса к Claude, чтобы её нельзя было обойти параллельными запросами.
+      const reserved = await this.prisma.user.updateMany({
+        where: { id: userId, ...(quota.limit === null ? {} : underLimit(quota.limit)) },
+        data: countData,
+      })
+      if (reserved.count === 0) throw new HttpException('Бесплатная генерация на сегодня уже использована', HttpStatus.TOO_MANY_REQUESTS)
+    } else {
+      if (!payWithCredits) {
+        throw new HttpException(
+          `Бесплатная генерация на сегодня использована. Ещё одна — за ${IDEAS_CREDIT_PRICE} ₢`,
+          HttpStatus.TOO_MANY_REQUESTS,
+        )
+      }
+      if (!quota.paidRemaining) {
+        throw new HttpException('На сегодня генерации закончились — приходи завтра', HttpStatus.TOO_MANY_REQUESTS)
+      }
+      if (quota.balance < IDEAS_CREDIT_PRICE) {
+        throw new BadRequestException(`Нужно ${IDEAS_CREDIT_PRICE} ₢ — выполни пару заданий и возвращайся`)
+      }
+      // Списываем кредиты и резервируем попытку одной атомарной операцией.
+      const charged = await this.prisma.$transaction(async tx => {
+        const res = await tx.user.updateMany({
+          where: { id: userId, balance: { gte: IDEAS_CREDIT_PRICE }, ...underLimit(IDEAS_DAILY_CAP) },
+          data: { ...countData, balance: { decrement: IDEAS_CREDIT_PRICE } },
+        })
+        if (res.count === 0) return false
+        await tx.transaction.create({
+          data: { userId, amount: -IDEAS_CREDIT_PRICE, type: 'SPEND', description: 'ИИ-генерация идей для Reels' },
+        })
+        return true
+      })
+      if (!charged) throw new BadRequestException('Не получилось списать кредиты — обнови страницу и попробуй ещё раз')
     }
 
     try {
       const result = await this.askClaude(topic.slice(0, 200))
-      return { ...result, remaining: quota.remaining === null ? null : quota.remaining - 1 }
+      const after = await this.getIdeasQuota(userId)
+      return { ...result, remaining: after.remaining, paidRemaining: after.paidRemaining, balance: after.balance, creditPrice: IDEAS_CREDIT_PRICE }
     } catch (error) {
-      // Не получилось — возвращаем попытку.
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: { ideasUsedCount: { decrement: 1 } },
+      // Не получилось — возвращаем попытку и, если платили, кредиты.
+      await this.prisma.$transaction(async tx => {
+        await tx.user.update({
+          where: { id: userId },
+          data: { ideasUsedCount: { decrement: 1 }, ...(isFree ? {} : { balance: { increment: IDEAS_CREDIT_PRICE } }) },
+        })
+        if (!isFree) {
+          await tx.transaction.create({
+            data: { userId, amount: IDEAS_CREDIT_PRICE, type: 'REFUND', description: 'Возврат: ИИ-генерация не удалась' },
+          })
+        }
       }).catch(() => undefined)
       if (error instanceof HttpException) throw error
       this.logger.error('Claude API error', error instanceof Anthropic.APIError ? `${error.status} ${error.message}` : error)

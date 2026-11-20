@@ -14,7 +14,7 @@ export class AiController {
 
   @Post('ideas')
   @UseGuards(JwtAuthGuard)
-  generate(@Request() req: any, @Body() body: { niche: string }) {
-    return this.aiService.generateIdeas(req.user.sub, body?.niche)
+  generate(@Request() req: any, @Body() body: { niche: string; payWithCredits?: boolean }) {
+    return this.aiService.generateIdeas(req.user.sub, body?.niche, body?.payWithCredits === true)
   }
 }
