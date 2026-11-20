@@ -39,6 +39,7 @@ model User {
   transactions         Transaction[]
   taskStarts           TaskStart[]
   taskReports          TaskReport[]
+  aiUsage              AiUsage[]
 }
 
 model Campaign {
@@ -124,4 +125,18 @@ model TaskReport {
   campaign    Campaign  @relation(fields: [campaignId], references: [id])
 
   @@unique([userId, campaignId])
+}
+
+// Сколько раз пользователь воспользовался ИИ-инструментом за день (UTC).
+// tool: ideas | hooks | caption | check
+model AiUsage {
+  id      Int       @id @default(autoincrement())
+  userId  Int
+  tool    String
+  day     DateTime
+  count   Int       @default(0)
+
+  user    User      @relation(fields: [userId], references: [id])
+
+  @@unique([userId, tool, day])
 }

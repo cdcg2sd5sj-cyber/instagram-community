@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core'
+import { NestExpressApplication } from '@nestjs/platform-express'
 import { ValidationPipe } from '@nestjs/common'
 import { AppModule } from './app.module'
 
@@ -8,7 +9,9 @@ async function bootstrap() {
     throw new Error('JWT_SECRET is not set (or is the insecure default). Refusing to start.')
   }
 
-  const app = await NestFactory.create(AppModule)
+  const app = await NestFactory.create<NestExpressApplication>(AppModule)
+  // Проверка перед публикацией присылает до 3 картинок в base64 — стандартных 100 КБ мало.
+  app.useBodyParser('json', { limit: '8mb' })
 
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true }),
