@@ -4,6 +4,9 @@ import { PrismaService } from '../prisma/prisma.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import * as crypto from 'crypto'
 import axios from 'axios'
+
+// Хватает ровно на пакет «Мини», чтобы новичок сразу мог запустить свой Reels.
+const STARTING_BALANCE = 50
 import { recordRapidApiQuota, saveAvatarFromUrl } from '../common/instagram-avatar'
 
 @Injectable()
@@ -84,7 +87,7 @@ export class AuthService {
           instagramVerified: true,
           instagramTrustScore: igCheck.score,
           profilePicUrl: igCheck.profilePicUrl,
-          balance: 10,
+          balance: STARTING_BALANCE,
           referralCode: this.generateReferralCode(),
           referredById: referrerId,
         },

@@ -2,6 +2,10 @@ import { Injectable, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { NotificationsService } from '../notifications/notifications.service'
 
+// Награда за выполнение задания. Должна быть близка к цене одного слота (Мини: 50 ₢ / 10 слотов = 5 ₢),
+// иначе кредиты «печатаются» быстрее, чем тратятся.
+export const TASK_REWARD = 5
+
 // Must match PACKAGES in frontend app/page.tsx
 const PACKAGES: Record<number, number> = {
   10: 50,
@@ -41,7 +45,7 @@ export class CampaignsService {
 
     const [campaign] = await this.prisma.$transaction([
       this.prisma.campaign.create({
-        data: { userId, reelsUrl, totalSlots, creditsPerTask: 15 },
+        data: { userId, reelsUrl, totalSlots, creditsPerTask: TASK_REWARD },
       }),
       this.prisma.user.update({
         where: { id: userId },

@@ -19,7 +19,7 @@ model User {
   profilePicUrl        String?
   avatarImage          Bytes?
   avatarContentType    String?
-  balance              Int       @default(10)
+  balance              Int       @default(50)
   rating               Int       @default(80)
   completedTasksCount  Int       @default(0)
   streak               Int       @default(0)
@@ -42,7 +42,7 @@ model Campaign {
   reelsUrl        String
   totalSlots      Int
   filledSlots     Int       @default(0)
-  creditsPerTask  Int       @default(15)
+  creditsPerTask  Int       @default(5)
   status          CampaignStatus @default(ACTIVE)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
