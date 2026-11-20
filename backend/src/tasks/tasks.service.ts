@@ -5,6 +5,12 @@ import { CampaignsService } from '../campaigns/campaigns.service'
 import { isSameReel } from '../common/url.util'
 import { avatarPath, ensureAvatarSaved } from '../common/instagram-avatar'
 
+// Сколько секунд должно пройти от «Открыть Reels» до отправки ссылки.
+// Должно совпадать с REQUIRED_SECONDS во фронтенде (app/page.tsx).
+export const MIN_WATCH_SECONDS = 30
+// Запас на задержку сети между нажатием кнопки и записью на сервере.
+const WATCH_TOLERANCE_SECONDS = 3
+
 const STREAK_BONUS_EVERY = 7
 const STREAK_BONUS_AMOUNT = 30
 
@@ -45,6 +51,23 @@ export class TasksService {
     }
   }
 
+  // Запоминаем момент первого «Открыть Reels». Повторное открытие время не сбрасывает.
+  async startTask(userId: number, campaignId: number) {
+    if (!Number.isInteger(campaignId)) throw new BadRequestException('Задание недоступно')
+    const campaign = await this.prisma.campaign.findFirst({
+      where: { id: campaignId, status: 'ACTIVE', userId: { not: userId } },
+      select: { id: true },
+    })
+    if (!campaign) throw new BadRequestException('Задание недоступно')
+
+    const start = await this.prisma.taskStart.upsert({
+      where: { userId_campaignId: { userId, campaignId } },
+      create: { userId, campaignId },
+      update: {},
+    })
+    return { openedAt: start.openedAt, minWatchSeconds: MIN_WATCH_SECONDS }
+  }
+
   // Задание: открыть Reels → лайк → «Поделиться → Копировать ссылку» → вставить ссылку.
   // Комментарий больше не обязателен; если старая версия приложения его прислала — просто сохраняем.
   async completeTask(userId: number, campaignId: number, comment: string | undefined, reelsUrl: string) {
@@ -66,6 +89,19 @@ export class TasksService {
     })
     if (!campaign || campaign.filledSlots >= campaign.totalSlots) {
       throw new BadRequestException('Задание недоступно')
+    }
+
+    // Ссылку принимаем, только если Reels открывали через приложение и прошло достаточно времени.
+    const start = await this.prisma.taskStart.findUnique({
+      where: { userId_campaignId: { userId, campaignId } },
+    })
+    if (!start) {
+      throw new BadRequestException('Сначала открой Reels кнопкой «Открыть Reels» в задании')
+    }
+    const watchedSeconds = (Date.now() - start.openedAt.getTime()) / 1000
+    if (watchedSeconds < MIN_WATCH_SECONDS - WATCH_TOLERANCE_SECONDS) {
+      const left = Math.ceil(MIN_WATCH_SECONDS - watchedSeconds)
+      throw new BadRequestException(`Посмотри Reels ещё ${left} сек., потом отправляй ссылку`)
     }
 
     if (!isSameReel(reelsUrl, campaign.reelsUrl)) {

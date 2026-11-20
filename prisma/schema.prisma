@@ -37,6 +37,7 @@ model User {
   campaigns            Campaign[]
   completions          TaskCompletion[]
   transactions         Transaction[]
+  taskStarts           TaskStart[]
 }
 
 model Campaign {
@@ -52,6 +53,7 @@ model Campaign {
 
   user            User      @relation(fields: [userId], references: [id])
   completions     TaskCompletion[]
+  taskStarts      TaskStart[]
 }
 
 model TaskCompletion {
@@ -92,4 +94,18 @@ enum TransactionType {
   SPEND
   BONUS
   REFUND
+}
+
+// Когда пользователь нажал «Открыть Reels» в задании. Сервер принимает ссылку
+// только если с этого момента прошло достаточно времени.
+model TaskStart {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  campaignId  Int
+  openedAt    DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id])
+  campaign    Campaign  @relation(fields: [campaignId], references: [id])
+
+  @@unique([userId, campaignId])
 }
