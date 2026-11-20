@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { NotificationsService } from '../notifications/notifications.service'
+import { avatarPath } from '../common/instagram-avatar'
 
 // Награда за выполнение задания. Должна быть близка к цене одного слота (Мини: 50 ₢ / 10 слотов = 5 ₢),
 // иначе кредиты «печатаются» быстрее, чем тратятся.
@@ -64,12 +65,54 @@ export class CampaignsService {
     return campaign
   }
 
+  // Сколько последних участников показываем автору в карточке кампании.
+  private static readonly VIEWERS_LIMIT = 50
+
   async getUserCampaigns(userId: number) {
-    return this.prisma.campaign.findMany({
+    const campaigns = await this.prisma.campaign.findMany({
       where: { userId },
-      include: { _count: { select: { completions: true } } },
+      include: {
+        _count: { select: { completions: true } },
+        completions: {
+          orderBy: { createdAt: 'desc' },
+          take: CampaignsService.VIEWERS_LIMIT,
+          select: {
+            createdAt: true,
+            // avatarContentType заполняется вместе с картинкой — по нему видно, есть ли аватарка,
+            // не вытягивая из БД сами байты.
+            user: { select: { id: true, instagramUsername: true, avatarContentType: true } },
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     })
+
+    return campaigns.map(({ completions, ...campaign }) => ({
+      ...campaign,
+      viewers: completions.map(c => ({
+        username: c.user.instagramUsername,
+        profilePicUrl: avatarPath(c.user.id, !!c.user.avatarContentType),
+        completedAt: c.createdAt,
+      })),
+    }))
+  }
+
+  // Автору: первый участник и половина кампании. 100% — в notifyIfFilled.
+  async notifyProgress(campaignId: number, filled: number, viewerUsername: string) {
+    const campaign = await this.prisma.campaign.findUnique({
+      where: { id: campaignId },
+      include: { user: true },
+    })
+    if (!campaign) return
+
+    const half = Math.ceil(campaign.totalSlots / 2)
+    let text: string | null = null
+    if (filled === 1) {
+      text = `👀 Первый участник уже посмотрел твой Reels — @${viewerUsername}. Дальше будет больше!`
+    } else if (filled === half && campaign.totalSlots >= 10) {
+      text = `🔥 Половина пути: твой Reels посмотрели ${filled} из ${campaign.totalSlots} участников.`
+    }
+    if (text) await this.notifications.sendNotification(campaign.user.telegramId, text, { openAppButton: true })
   }
 
   async notifyIfFilled(campaignId: number) {

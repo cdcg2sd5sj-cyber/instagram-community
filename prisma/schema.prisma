@@ -19,6 +19,7 @@ model User {
   profilePicUrl        String?
   avatarImage          Bytes?
   avatarContentType    String?
+  lastReminderAt       DateTime?
   balance              Int       @default(50)
   rating               Int       @default(80)
   completedTasksCount  Int       @default(0)

@@ -150,8 +150,11 @@ export class TasksService {
       )
     }
 
-    if (campaign.filledSlots + 1 >= campaign.totalSlots) {
+    const newFilled = campaign.filledSlots + 1
+    if (newFilled >= campaign.totalSlots) {
       await this.campaignsService.notifyIfFilled(campaignId)
+    } else {
+      await this.campaignsService.notifyProgress(campaignId, newFilled, user.instagramUsername)
     }
 
     return { creditsEarned: totalEarned, streak: newStreak, streakBonusApplied }
