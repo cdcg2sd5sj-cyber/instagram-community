@@ -10,6 +10,8 @@ export const AI_TOOLS = {
   hooks: { free: 1, price: 10, cap: 10, label: 'ИИ: хуки для Reels' },
   caption: { free: 1, price: 10, cap: 10, label: 'ИИ: улучшение подписи' },
   check: { free: 0, price: 25, cap: 5, label: 'ИИ: проверка перед публикацией' },
+  script: { free: 1, price: 10, cap: 10, label: 'ИИ: сценарий Reels' },
+  stats: { free: 0, price: 25, cap: 5, label: 'ИИ: разбор статистики Reels' },
 } as const
 export type AiTool = keyof typeof AI_TOOLS
 
@@ -29,6 +31,18 @@ export interface CheckResult {
   firstImpression: string
   strengths: string[]
   fixes: string[]
+}
+
+export interface ScriptResult {
+  scenes: { time: string; shot: string; text: string; voice: string }[]
+  cta: string
+  filmingTips: string[]
+}
+export interface StatsResult {
+  summary: string
+  keyNumbers: { label: string; value: string; verdict: 'good' | 'ok' | 'bad' }[]
+  problems: string[]
+  nextSteps: string[]
 }
 
 export interface CheckImage { data: string; mediaType: 'image/jpeg' | 'image/png' | 'image/webp' }
@@ -220,8 +234,77 @@ ${JSON_ONLY}
     })
   }
 
-  async checkBeforePublish(userId: number, images: CheckImage[], descriptionRaw: string | undefined, payWithCredits = false) {
-    if (!Array.isArray(images) || images.length === 0) throw new BadRequestException('Загрузи хотя бы один кадр или обложку')
+  async generateScript(userId: number, ideaRaw: string, secondsRaw: number | undefined, payWithCredits = false) {
+    const idea = (ideaRaw ?? '').trim().slice(0, 500)
+    if (idea.length < 5) throw new BadRequestException('Опиши идею ролика')
+    const seconds = [15, 30, 60].includes(Number(secondsRaw)) ? Number(secondsRaw) : 30
+    return this.runTool(userId, 'script', payWithCredits, async () => {
+      const r = await this.askHaiku<ScriptResult>(`Ты сценарист коротких вертикальных видео (Instagram Reels).
+Идея ролика от автора: "${idea}"
+Длительность: около ${seconds} секунд.
+
+Напиши покадровый сценарий, который автор сможет снять на телефон один, без команды.
+Первая сцена (0-3 сек) — сильный хук, чтобы не пролистали. Темп быстрый, сцены по 2-6 секунд.
+Для каждой сцены:
+- time — отрезок, например "0-3 сек"
+- shot — что в кадре и как снимать (план, ракурс, действие)
+- text — текст на экране (коротко, до 7 слов; пустая строка, если не нужен)
+- voice — что говорить за кадром или в камеру (пустая строка, если без слов)
+Также:
+- cta — чем закончить ролик (призыв к действию)
+- filmingTips — 2-3 коротких практических совета по съёмке именно этого ролика
+Пиши по-русски, живым языком, не выдумывай фактов о продукте автора.
+
+${JSON_ONLY}
+{"scenes": [{"time": "0-3 сек", "shot": "...", "text": "...", "voice": "..."}], "cta": "...", "filmingTips": ["..."]}`)
+      if (!Array.isArray(r.scenes) || r.scenes.length === 0) throw new BadGatewayException('Не удалось написать сценарий, попробуй ещё раз')
+      return {
+        scenes: r.scenes.slice(0, 15).map(sc => ({
+          time: String(sc?.time ?? ''), shot: String(sc?.shot ?? ''), text: String(sc?.text ?? ''), voice: String(sc?.voice ?? ''),
+        })),
+        cta: String(r.cta ?? ''),
+        filmingTips: Array.isArray(r.filmingTips) ? r.filmingTips.map(String).slice(0, 4) : [],
+      }
+    })
+  }
+
+  async reviewStats(userId: number, images: CheckImage[], noteRaw: string | undefined, payWithCredits = false) {
+    this.validateImages(images, 'Загрузи хотя бы один скриншот статистики')
+    const note = (noteRaw ?? '').trim().slice(0, 500)
+    return this.runTool(userId, 'stats', payWithCredits, async () => {
+      const r = await this.askSonnetVision<StatsResult & { notStats?: boolean }>(images, `Это скриншоты статистики (Insights) одного Instagram Reels.${note ? `\nАвтор добавляет: "${note}"` : ''}
+
+Если на картинках НЕТ статистики Instagram (охваты, просмотры, удержание, взаимодействия) — верни {"notStats": true}.
+
+Иначе разбери как опытный SMM-аналитик, почему ролик набрал столько, сколько набрал:
+- summary — 2-3 предложения: главный вывод простыми словами
+- keyNumbers — 3-6 ключевых цифр со скриншотов (label — что это, value — значение как на скриншоте,
+  verdict — "good", "ok" или "bad" для ролика такого масштаба). Бери только цифры, которые реально видны.
+- problems — 2-4 главные причины, где ролик теряет зрителей или охват
+- nextSteps — 3-5 конкретных действий для следующего ролика
+Если важной метрики не видно (например, удержания), скажи об этом в problems и посоветуй, где её посмотреть.
+Пиши по-русски, коротко и по делу, без воды. Ничего не выдумывай.
+
+${JSON_ONLY}
+{"summary": "...", "keyNumbers": [{"label": "...", "value": "...", "verdict": "good"}], "problems": ["..."], "nextSteps": ["..."]}`)
+      if (r.notStats) throw new BadRequestException('На скриншотах не видно статистики Reels — открой ролик → «Статистика» и сделай скриншот. Попытку вернули.')
+      if (typeof r.summary !== 'string' || !Array.isArray(r.nextSteps)) throw new BadGatewayException('Не удалось разобрать статистику, попробуй ещё раз')
+      return {
+        summary: r.summary,
+        keyNumbers: Array.isArray(r.keyNumbers)
+          ? r.keyNumbers.slice(0, 6).map(k => ({
+            label: String(k?.label ?? ''), value: String(k?.value ?? ''),
+            verdict: (['good', 'ok', 'bad'].includes(k?.verdict) ? k.verdict : 'ok') as 'good' | 'ok' | 'bad',
+          }))
+          : [],
+        problems: Array.isArray(r.problems) ? r.problems.map(String) : [],
+        nextSteps: r.nextSteps.map(String),
+      }
+    })
+  }
+
+  private validateImages(images: CheckImage[], emptyMessage: string) {
+    if (!Array.isArray(images) || images.length === 0) throw new BadRequestException(emptyMessage)
     if (images.length > MAX_IMAGES) throw new BadRequestException(`Не больше ${MAX_IMAGES} изображений`)
     for (const img of images) {
       if (!img || typeof img.data !== 'string' || !['image/jpeg', 'image/png', 'image/webp'].includes(img.mediaType)) {
@@ -231,27 +314,14 @@ ${JSON_ONLY}
         throw new BadRequestException('Картинка слишком большая — до 1,5 МБ')
       }
     }
+  }
+
+  async checkBeforePublish(userId: number, images: CheckImage[], descriptionRaw: string | undefined, payWithCredits = false) {
+    this.validateImages(images, 'Загрузи хотя бы один кадр или обложку')
     const description = (descriptionRaw ?? '').trim().slice(0, 500)
 
     return this.runTool(userId, 'check', payWithCredits, async () => {
-      const response = await this.getClient().beta.messages.create({
-        // Sonnet 5.5 хорошо понимает изображения; оценка кадров — его задача.
-        model: 'claude-sonnet-5-5',
-        max_tokens: 8000,
-        output_config: { effort: 'medium' },
-        // Если модель откажет по соображениям безопасности, запрос сам повторится на запасной модели.
-        betas: ['server-side-fallback-2026-07-01'],
-        fallbacks: 'default',
-        messages: [{
-          role: 'user',
-          content: [
-            ...images.map(img => ({
-              type: 'image' as const,
-              source: { type: 'base64' as const, media_type: img.mediaType, data: img.data },
-            })),
-            {
-              type: 'text' as const,
-              text: `Это кадры или обложка будущего Instagram Reels (по порядку).${description ? `\nАвтор пишет о ролике: "${description}"` : ''}
+      const r = await this.askSonnetVision<CheckResult>(images, `Это кадры или обложка будущего Instagram Reels (по порядку).${description ? `\nАвтор пишет о ролике: "${description}"` : ''}
 
 Оцени как опытный продюсер коротких видео, удержит ли это зрителя в первые секунды:
 - score — оценка от 1 до 10
@@ -261,16 +331,8 @@ ${JSON_ONLY}
 Пиши по-русски, коротко и по делу, без воды.
 
 ${JSON_ONLY}
-{"score": 7, "firstImpression": "...", "strengths": ["..."], "fixes": ["..."]}`,
-            },
-          ],
-        }],
-      })
-      if (response.stop_reason === 'refusal') {
-        throw new BadRequestException('Не получилось оценить эти изображения — попробуй другие кадры')
-      }
-      const r = this.parseJson<CheckResult>(response.content.find(b => b.type === 'text')?.text)
-      if (!r || typeof r.score !== 'number' || !Array.isArray(r.fixes)) throw new BadGatewayException('Не удалось проверить ролик, попробуй ещё раз')
+{"score": 7, "firstImpression": "...", "strengths": ["..."], "fixes": ["..."]}`)
+      if (typeof r.score !== 'number' || !Array.isArray(r.fixes)) throw new BadGatewayException('Не удалось проверить ролик, попробуй ещё раз')
       return {
         score: Math.max(1, Math.min(10, Math.round(r.score))),
         firstImpression: String(r.firstImpression ?? ''),
@@ -281,6 +343,34 @@ ${JSON_ONLY}
   }
 
   // ---------- Claude ----------
+
+  // Sonnet 5.5 хорошо понимает изображения: кадры, обложки, скриншоты статистики.
+  private async askSonnetVision<T>(images: CheckImage[], prompt: string): Promise<T> {
+    const response = await this.getClient().beta.messages.create({
+      model: 'claude-sonnet-5-5',
+      max_tokens: 8000,
+      output_config: { effort: 'medium' },
+      // Если модель откажет по соображениям безопасности, запрос сам повторится на запасной модели.
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      messages: [{
+        role: 'user',
+        content: [
+          ...images.map(img => ({
+            type: 'image' as const,
+            source: { type: 'base64' as const, media_type: img.mediaType, data: img.data },
+          })),
+          { type: 'text' as const, text: prompt },
+        ],
+      }],
+    })
+    if (response.stop_reason === 'refusal') {
+      throw new BadRequestException('Не получилось обработать эти изображения — попробуй другие')
+    }
+    const parsed = this.parseJson<T>(response.content.find(b => b.type === 'text')?.text)
+    if (!parsed) throw new BadGatewayException('ИИ ответил непонятно, попробуй ещё раз')
+    return parsed
+  }
 
   private async askHaiku<T>(prompt: string): Promise<T> {
     const response = await this.getClient().messages.create({

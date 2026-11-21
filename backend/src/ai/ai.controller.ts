@@ -38,4 +38,14 @@ export class AiController {
   check(@Request() req: any, @Body() body: { images: CheckImage[]; description?: string; payWithCredits?: boolean }) {
     return this.aiService.checkBeforePublish(req.user.sub, body?.images, body?.description, body?.payWithCredits === true)
   }
+
+  @Post('script')
+  script(@Request() req: any, @Body() body: { idea: string; seconds?: number; payWithCredits?: boolean }) {
+    return this.aiService.generateScript(req.user.sub, body?.idea, body?.seconds, body?.payWithCredits === true)
+  }
+
+  @Post('stats')
+  stats(@Request() req: any, @Body() body: { images: CheckImage[]; note?: string; payWithCredits?: boolean }) {
+    return this.aiService.reviewStats(req.user.sub, body?.images, body?.note, body?.payWithCredits === true)
+  }
 }
