@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common'
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import { PrismaService } from '../prisma/prisma.service'
 import { NotificationsService } from '../notifications/notifications.service'
@@ -7,10 +7,14 @@ import axios from 'axios'
 
 // Хватает ровно на пакет «Мини», чтобы новичок сразу мог запустить свой Reels.
 const STARTING_BALANCE = 50
-import { recordRapidApiQuota, saveAvatarFromUrl } from '../common/instagram-avatar'
+// Требования к аккаунту минимальные — приложение для тех, кто только начинает:
+// открытый профиль и хотя бы одна публикация (её же человек и будет продвигать).
+const MIN_POSTS = 1
+import { rapidApiExhausted, recordRapidApiQuota, saveAvatarFromUrl } from '../common/instagram-avatar'
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name)
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -61,6 +65,16 @@ export class AuthService {
         return { needsInstagram: true }
       }
 
+      // Сначала проверяем, не занят ли ник, — это бесплатно и бережёт лимит RapidAPI.
+      const cleanUsername = instagramUsername.trim().replace(/^@/, '')
+      const taken = await this.prisma.user.findFirst({
+        where: { instagramUsername: { equals: cleanUsername, mode: 'insensitive' } },
+        select: { id: true },
+      })
+      if (taken) {
+        return { igError: 'Этот Instagram уже зарегистрирован в приложении' }
+      }
+
       const igCheck = await this.checkInstagram(instagramUsername)
       if (!igCheck.valid) {
         return { igError: igCheck.reason }
@@ -83,7 +97,7 @@ export class AuthService {
           telegramId: String(tgUser.id),
           firstName: tgUser.first_name,
           username: tgUser.username,
-          instagramUsername: instagramUsername.replace('@', ''),
+          instagramUsername: instagramUsername.trim().replace(/^@/, '').toLowerCase(),
           instagramVerified: true,
           instagramTrustScore: igCheck.score,
           profilePicUrl: igCheck.profilePicUrl,
@@ -127,18 +141,32 @@ export class AuthService {
     return { token, user }
   }
 
-  private async checkInstagram(username: string) {
-    if (process.env.SKIP_INSTAGRAM_CHECK === 'true') {
-      return { valid: true, reason: null, score: 100, profilePicUrl: null }
+  /**
+   * Проверка аккаунта через RapidAPI — обязательна. Если сервис недоступен
+   * (кончился месячный лимит, ошибка, таймаут), регистрацию не пропускаем.
+   */
+  private async checkInstagram(username: string): Promise<{
+    valid: boolean; reason: string | null; score: number; profilePicUrl: string | null
+  }> {
+    const clean = username.trim().replace(/^@/, '').toLowerCase()
+    if (!/^[a-z0-9._]{1,30}$/.test(clean)) {
+      return { valid: false, reason: 'Проверь username — только латинские буквы, цифры, точки и _', score: 0, profilePicUrl: null }
+    }
+    if (process.env.SKIP_INSTAGRAM_CHECK === 'true') return { valid: true, reason: null, score: 100, profilePicUrl: null }
+    const unavailable = { valid: false, reason: 'Проверка аккаунта временно недоступна — попробуй чуть позже', score: 0, profilePicUrl: null }
+    if (rapidApiExhausted()) {
+      this.logger.error('RapidAPI: месячный лимит исчерпан — новые пользователи не могут зарегистрироваться')
+      return unavailable
     }
 
+    let data: any
     try {
-      const clean = username.replace('@', '')
       const body = new URLSearchParams({ username_or_url: clean, data: 'basic' })
       const response = await axios.post(
         'https://instagram-scraper-stable-api.p.rapidapi.com/ig_get_fb_profile.php',
         body.toString(),
         {
+          timeout: 10000,
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
             'x-rapidapi-key': process.env.RAPIDAPI_KEY!,
@@ -146,28 +174,29 @@ export class AuthService {
           },
         },
       )
-
       recordRapidApiQuota(response.headers)
-      const data = response.data
-      if (!data || data.error) {
-        return { valid: false, reason: 'Не удалось найти этот аккаунт - проверь правильность написания username', score: 0, profilePicUrl: null }
-      }
-      if (data.is_private) {
-        return { valid: false, reason: 'Аккаунт должен быть открытым (публичным)', score: 0, profilePicUrl: null }
-      }
-      if ((data.follower_count ?? 0) < 10) {
-        return { valid: false, reason: 'Для регистрации нужно минимум 10 подписчиков', score: 0, profilePicUrl: null }
-      }
-      if ((data.media_count ?? 0) < 5) {
-        return { valid: false, reason: 'Для регистрации нужно минимум 5 публикаций в аккаунте', score: 0, profilePicUrl: null }
-      }
-
-      const score = Math.min(100, Math.floor(data.follower_count / 10))
-      return { valid: true, reason: null, score, profilePicUrl: data.profile_pic_url || null }
-    } catch {
-      return { valid: false, reason: 'Не удалось проверить аккаунт', score: 0, profilePicUrl: null }
+      data = response.data
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) recordRapidApiQuota(error.response.headers)
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined
+      this.logger.error(`Проверка Instagram недоступна (${status ?? 'нет ответа'}) — регистрация @${clean} отклонена`)
+      return unavailable
     }
+
+    if (!data || data.error) {
+      return { valid: false, reason: 'Не нашли такой аккаунт — проверь, правильно ли написан username', score: 0, profilePicUrl: null }
+    }
+    if (data.is_private) {
+      return { valid: false, reason: 'Аккаунт закрытый — открой его в настройках Instagram и попробуй снова', score: 0, profilePicUrl: null }
+    }
+    if ((data.media_count ?? 0) < MIN_POSTS) {
+      return { valid: false, reason: 'Нужна хотя бы одна публикация в аккаунте', score: 0, profilePicUrl: null }
+    }
+
+    const score = Math.min(100, Math.floor((data.follower_count ?? 0) / 10))
+    return { valid: true, reason: null, score, profilePicUrl: data.profile_pic_url || null }
   }
+
 
   private generateReferralCode(): string {
     return Math.random().toString(36).substring(2, 8).toUpperCase()

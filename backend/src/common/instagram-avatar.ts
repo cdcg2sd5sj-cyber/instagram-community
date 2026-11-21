@@ -26,6 +26,11 @@ export function recordRapidApiQuota(headers: AxiosResponseHeaders | RawAxiosResp
   if (Number.isFinite(value)) rapidApiRemaining = value
 }
 
+// true, если точно знаем, что запросы RapidAPI на этот месяц закончились.
+export function rapidApiExhausted(): boolean {
+  return rapidApiRemaining !== null && rapidApiRemaining <= 0
+}
+
 function hasQuotaForAvatars(): boolean {
   return rapidApiRemaining === null || rapidApiRemaining > QUOTA_RESERVE
 }
